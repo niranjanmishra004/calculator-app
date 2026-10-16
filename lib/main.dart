@@ -125,7 +125,7 @@ class _CalculatorScreenState extends State<CalculatorScreen> {
   bool _justEvaluated = false;
   bool _error = false;
   double? _result;
-  bool _haptics = true;
+  final bool _haptics = true;
 
   // ---------- evaluation (shunting-yard + RPN) ----------
 
@@ -548,7 +548,6 @@ class _CalculatorScreenState extends State<CalculatorScreen> {
   Color get _bg => _dark ? Colors.black : Colors.white;
   Color get _backdrop => _dark ? const Color(0xFF1C1C1E) : const Color(0xFFD1D1D6);
   Color get _displayFg => _dark ? Colors.white : Colors.black;
-  Color get _sheetBg => _dark ? const Color(0xFF1C1C1E) : Colors.white;
   Color get _topFg => _dark ? Colors.white : Colors.black;
   // Neutral keys: numbers, parentheses and DEL.
   Color get _keyBg => _dark ? const Color(0xFF333333) : Colors.white;
@@ -641,14 +640,26 @@ class _CalculatorScreenState extends State<CalculatorScreen> {
           onTap: fn,
         );
 
-    Widget op(_Op o) => _key(
-          label: _opKeyLabel(o),
-          bg: _opBg,
-          fg: _opFg,
-          size: d,
-          fontSize: 36,
-          onTap: () => _onOperator(o),
-        );
+    // The operator waiting for its right operand renders inverted,
+    // like physical pads that light up the pending key.
+    bool pendingOp(_Op o) =>
+        !_error &&
+        !_justEvaluated &&
+        _expr.isNotEmpty &&
+        _expr.last.type == _opTokType(o);
+
+    Widget op(_Op o) {
+      final pending = pendingOp(o);
+      return _key(
+        label: _opKeyLabel(o),
+        bg: pending ? Colors.white : _opBg,
+        fg: pending ? _opBg : _opFg,
+        size: d,
+        fontSize: 36,
+        bordered: pending,
+        onTap: () => _onOperator(o),
+      );
+    }
 
     return Column(
       mainAxisSize: MainAxisSize.min,
@@ -728,12 +739,6 @@ class _CalculatorScreenState extends State<CalculatorScreen> {
             icon: Icon(Icons.menu, color: _topFg, size: 26),
           ),
           const Spacer(),
-          IconButton(
-            onPressed: _openSettings,
-            tooltip: 'Settings',
-            splashRadius: 22,
-            icon: Icon(Icons.settings, color: _topFg, size: 26),
-          ),
         ],
       ),
     );
@@ -838,161 +843,10 @@ class _CalculatorScreenState extends State<CalculatorScreen> {
     );
   }
 
-  // ---------- sheets and dialogs ----------
-  Widget _sheetHandle() {
-    return Container(
-      width: 40,
-      height: 4,
-      decoration: BoxDecoration(
-        color: _displayFg.withValues(alpha: 0.2),
-        borderRadius: BorderRadius.circular(2),
-      ),
-    );
-  }
-
-  Widget _sheetTitle(String text) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(24, 14, 24, 6),
-      child: Align(
-        alignment: Alignment.centerLeft,
-        child: Text(
-          text,
-          style: TextStyle(
-            color: _displayFg,
-            fontSize: 18,
-            fontWeight: FontWeight.w700,
-          ),
-        ),
-      ),
-    );
-  }
-
-  ShapeBorder get _sheetShape => const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      );
-
-  void _openSettings() {
-    showModalBottomSheet<void>(
-      context: context,
-      backgroundColor: _sheetBg,
-      shape: _sheetShape,
-      builder: (ctx) {
-        return StatefulBuilder(
-          builder: (ctx, setSheetState) {
-            return SafeArea(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const SizedBox(height: 12),
-                  _sheetHandle(),
-                  _sheetTitle('Settings'),
-                  SwitchListTile(
-                    secondary: Icon(Icons.vibration, color: _displayFg),
-                    title: Text(
-                      'Haptic feedback',
-                      style: TextStyle(color: _displayFg),
-                    ),
-                    value: _haptics,
-                    onChanged: (v) {
-                      setState(() => _haptics = v);
-                      setSheetState(() {});
-                    },
-                  ),
-                  ListTile(
-                    leading: Icon(Icons.copy_all, color: _displayFg),
-                    title: Text(
-                      'Copy result',
-                      style: TextStyle(color: _displayFg),
-                    ),
-                    onTap: () {
-                      Navigator.pop(ctx);
-                      _copyResult();
-                    },
-                  ),
-                  ListTile(
-                    leading: Icon(Icons.content_paste, color: _displayFg),
-                    title: Text(
-                      'Paste number',
-                      style: TextStyle(color: _displayFg),
-                    ),
-                    onTap: () {
-                      Navigator.pop(ctx);
-                      _pasteNumber();
-                    },
-                  ),
-                  ListTile(
-                    leading: Icon(Icons.info_outline, color: _displayFg),
-                    title: Text(
-                      'About',
-                      style: TextStyle(color: _displayFg),
-                    ),
-                    onTap: () {
-                      Navigator.pop(ctx);
-                      _showAbout();
-                    },
-                  ),
-                  const SizedBox(height: 12),
-                ],
-              ),
-            );
-          },
-        );
-      },
-    );
-  }
-
   void _openDashboard() {
     Navigator.push(
       context,
-      MaterialPageRoute(
-        builder: (_) => DashboardScreen(dark: _dark, haptics: _haptics),
-      ),
-    );
-  }
-
-  Future<void> _copyResult() async {
-    final text = _displayText;
-    await Clipboard.setData(ClipboardData(text: text));
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Copied "$text"')),
-    );
-  }
-
-  Future<void> _pasteNumber() async {
-    final data = await Clipboard.getData(Clipboard.kTextPlain);
-    final raw = (data?.text ?? '').replaceAll(' ', '').trim();
-    if (!mounted) return;
-    final value = double.tryParse(raw);
-    if (value == null || value.isNaN || value.isInfinite) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('No number on the clipboard')),
-      );
-      return;
-    }
-    setState(() {
-      _reset();
-      _expr.add(_Tok(_TokType.num, _cleanRaw(value)));
-    });
-  }
-
-  void _showAbout() {
-    showDialog<void>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: _sheetBg,
-        title: Text('Calculator', style: TextStyle(color: _displayFg)),
-        content: Text(
-          'A calculator with parentheses, a scientific mode, live results and keyboard input.',
-          style: TextStyle(color: _displayFg.withValues(alpha: 0.8)),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Close'),
-          ),
-        ],
-      ),
+      smoothPageRoute(DashboardScreen(dark: _dark, haptics: _haptics)),
     );
   }
 

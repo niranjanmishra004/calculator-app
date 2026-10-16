@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
 import 'age.dart';
+import 'emi.dart';
 import 'scientific.dart';
 import 'sip.dart';
 
@@ -10,14 +11,37 @@ import 'sip.dart';
 // Other Calculator dashboard
 // ---------------------------------------------------------------------------
 //
-// Opened from the hamburger icon. A tile grid matching the reference:
-// SIP, Loan, GST, Investment, Currency, Saving, Age, BMI, Unit, Date,
-// Discount, plus Scientific (keeps every feature reachable).
+// Opened from the hamburger icon. A tile grid matching the reference.
+// Age, Scientific, SIP and EMI open their real screens; the rest show a
+// "coming soon" note until their calculators are built.
 //
 // Icons are genuine Bootstrap Icons SVGs (MIT, https://icons.getbootstrap.com),
-// vendored under assets/icons/ and tinted orange like the reference.
-// Age, Scientific and SIP open their real screens; the rest show a
-// "coming soon" note until their calculators are built.
+// vendored under assets/icons/ and tinted app blue.
+
+/// Quick fade-and-glide page transition used for every section push, so
+/// navigation feels smooth instead of the default hard slide.
+PageRouteBuilder<void> smoothPageRoute(Widget child) {
+  return PageRouteBuilder<void>(
+    pageBuilder: (_, _, _) => child,
+    transitionDuration: const Duration(milliseconds: 220),
+    reverseTransitionDuration: const Duration(milliseconds: 200),
+    transitionsBuilder: (_, animation, _, child) {
+      final curved = CurvedAnimation(
+        parent: animation,
+        curve: Curves.easeOutCubic,
+      );
+      return FadeTransition(
+        opacity: curved,
+        child: SlideTransition(
+          position:
+              Tween<Offset>(begin: const Offset(0.06, 0), end: Offset.zero)
+                  .animate(curved),
+          child: child,
+        ),
+      );
+    },
+  );
+}
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({
@@ -43,9 +67,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
     ('Currency', 'currency-exchange'),
     ('Saving', 'piggy-bank'),
     ('Age', 'cake'),
-    ('BMI', 'clipboard2-pulse'),
+    ('EMI', 'credit-card'),
     ('Unit', 'rulers'),
-    ('Date', 'calendar'),
     ('Discount', 'percent'),
     ('Scientific', 'calculator'),
   ];
@@ -54,39 +77,37 @@ class _DashboardScreenState extends State<DashboardScreen> {
     if (widget.haptics) HapticFeedback.lightImpact();
   }
 
+  /// Quick fade-and-glide transition shared by every dashboard push, so
+  /// section changes feel smooth instead of the default hard slide.
+  PageRouteBuilder<void> _smooth(Widget child) => smoothPageRoute(child);
+
   void _onTile(String label) {
     _bip();
     if (label == 'Age') {
       Navigator.push(
         context,
-        MaterialPageRoute(
-          builder: (_) =>
-              AgeScreen(dark: widget.dark, haptics: widget.haptics),
-        ),
+        _smooth(AgeScreen(dark: widget.dark, haptics: widget.haptics)),
       );
       return;
     }
     if (label == 'Scientific') {
       Navigator.push(
         context,
-        MaterialPageRoute(
-          builder: (_) => ScientificScreen(
-            dark: widget.dark,
-            haptics: widget.haptics,
-          ),
-        ),
+        _smooth(ScientificScreen(dark: widget.dark, haptics: widget.haptics)),
       );
       return;
     }
     if (label == 'SIP') {
       Navigator.push(
         context,
-        MaterialPageRoute(
-          builder: (_) => SipScreen(
-            dark: widget.dark,
-            haptics: widget.haptics,
-          ),
-        ),
+        _smooth(SipScreen(dark: widget.dark, haptics: widget.haptics)),
+      );
+      return;
+    }
+    if (label == 'EMI') {
+      Navigator.push(
+        context,
+        _smooth(EmiScreen(dark: widget.dark, haptics: widget.haptics)),
       );
       return;
     }
@@ -126,32 +147,46 @@ class _DashboardScreenState extends State<DashboardScreen> {
         onTap: () => _onTile(label),
         child: Padding(
           // Compact enough that icon + label always fit the cell, even
-          // with large system text scaling.
-          padding: const EdgeInsets.symmetric(vertical: 18, horizontal: 8),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              SvgPicture.asset(
-                'assets/icons/$icon.svg',
-                width: 40,
-                height: 40,
-                colorFilter: ColorFilter.mode(
-                  _tileIcon,
-                  BlendMode.srcIn,
+          // with large system text scaling; the FittedBox shrinks the
+          // whole content instead of overflowing on narrow phones.
+          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+          child: FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Container(
+                  width: 60,
+                  height: 60,
+                  decoration: BoxDecoration(
+                    color: _tileIcon.withValues(alpha: 0.12),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Center(
+                    child: SvgPicture.asset(
+                      'assets/icons/$icon.svg',
+                      width: 34,
+                      height: 34,
+                      colorFilter: ColorFilter.mode(
+                        _tileIcon,
+                        BlendMode.srcIn,
+                      ),
+                    ),
+                  ),
                 ),
-              ),
-              const SizedBox(height: 12),
-              Text(
-                label,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  color: _fg,
-                  fontSize: 15,
-                  fontWeight: FontWeight.w500,
+                const SizedBox(height: 10),
+                Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: _fg,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w500,
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),

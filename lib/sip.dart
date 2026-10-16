@@ -105,12 +105,18 @@ class _SipScreenState extends State<SipScreen> {
   String _stepUp = '';
   int _years = 0;
   int _months = 0;
-  // Active keypad target: 0 amount, 1 rate, 2 step-up.
-  int _active = 0;
+  // Persistent editors: creating/disposing a controller per sheet races
+  // the sheet's exit transition, so they live as long as the screen.
+  final TextEditingController _amountCtrl = TextEditingController();
+  final TextEditingController _rateCtrl = TextEditingController();
+  final TextEditingController _stepCtrl = TextEditingController();
   final ScrollController _scroll = ScrollController();
 
   @override
   void dispose() {
+    _amountCtrl.dispose();
+    _rateCtrl.dispose();
+    _stepCtrl.dispose();
     _scroll.dispose();
     super.dispose();
   }
@@ -133,68 +139,146 @@ class _SipScreenState extends State<SipScreen> {
     return _years == 0 ? ms : '$ys $ms';
   }
 
-  String get _activeText => switch (_active) {
-    1 => _rate,
-    2 => _stepUp,
-    _ => _amount,
-  };
-
-  void _setActiveText(String v) {
-    switch (_active) {
-      case 1:
-        _rate = v;
-      case 2:
-        _stepUp = v;
-      default:
-        _amount = v;
-    }
-  }
-
-  /// Appends a keypad key to the active field, keeping the text numeric.
-  String _append(String cur, String k) {
-    if (k == '.') {
-      if (cur.contains('.')) return cur;
-      return cur.isEmpty ? '0.' : '$cur.';
-    }
-    var t = cur + k;
-    if (t.startsWith('0') && !t.startsWith('0.')) {
-      t = t.replaceFirst(RegExp(r'^0+'), '');
-      if (t.isEmpty || t.startsWith('.')) t = '0$t';
-    }
-    if (t.length > 12) return cur;
-    return t;
-  }
-
-  void _onKey(String k) {
+  /// Editor sheet with the normal system keyboard. Empty is a valid save
+  /// (shows the example placeholder); only garbage is rejected.
+  Future<void> _openEditor({
+    required String title,
+    required String hint,
+    required bool decimal,
+    required TextEditingController controller,
+    required String current,
+    required ValueChanged<String> onSave,
+  }) async {
     _bip();
-    setState(() {
-      if (k == 'AC') {
-        _setActiveText('');
-        return;
-      }
-      _setActiveText(_append(_activeText, k));
-    });
-  }
-
-  void _onDelete() {
-    _bip();
-    setState(() {
-      final t = _activeText;
-      if (t.isNotEmpty) {
-        _setActiveText(t.substring(0, t.length - 1));
-      }
-    });
-  }
-
-  void _onEquals() {
-    _bip();
-    if (!_scroll.hasClients) return;
-    _scroll.animateTo(
-      _scroll.position.maxScrollExtent,
-      duration: const Duration(milliseconds: 300),
-      curve: Curves.easeOut,
+    controller.text = current;
+    var error = '';
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: _sheetBg,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (ctx, setSheetState) {
+            // Scrollable so the open keyboard can never push content off.
+            return SafeArea(
+              child: SingleChildScrollView(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Center(child: _sheetHandle()),
+                      const SizedBox(height: 12),
+                      Text(
+                        title,
+                        style: TextStyle(
+                          color: _fg,
+                          fontSize: 18,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: controller,
+                        autofocus: true,
+                        keyboardType: decimal
+                            ? const TextInputType.numberWithOptions(
+                                decimal: true)
+                            : TextInputType.number,
+                        style: TextStyle(color: _fg, fontSize: 22),
+                        decoration: InputDecoration(
+                          hintText: hint,
+                          errorText: error.isEmpty ? null : error,
+                          enabledBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(14),
+                            borderSide: BorderSide(
+                              color: _fg.withValues(alpha: 0.2),
+                            ),
+                          ),
+                          focusedBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(14),
+                            borderSide: const BorderSide(
+                              color: Color(0xFF1D4ED8),
+                              width: 2,
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      SizedBox(
+                        width: double.infinity,
+                        child: FilledButton(
+                          style: FilledButton.styleFrom(
+                            backgroundColor: const Color(0xFF1D4ED8),
+                            foregroundColor: Colors.white,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(14),
+                            ),
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                          ),
+                          onPressed: () {
+                            final raw = controller.text
+                                .replaceAll(RegExp(r'[, ]'), '');
+                            final v = double.tryParse(
+                                raw.isEmpty ? '0' : raw);
+                            if (v == null || v < 0) {
+                              setSheetState(() {
+                                error = 'Enter a valid number';
+                              });
+                              return;
+                            }
+                            onSave(raw);
+                            Navigator.pop(ctx);
+                          },
+                          child: const Text(
+                            'Done',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
     );
   }
+
+  Future<void> _openAmount() => _openEditor(
+        title: 'Monthly SIP Amount',
+        hint: 'e.g. 10000',
+        decimal: false,
+        controller: _amountCtrl,
+        current: _amount,
+        onSave: (v) => setState(() => _amount = v),
+      );
+
+  Future<void> _openRate() => _openEditor(
+        title: 'Rate (%)',
+        hint: 'e.g. 12',
+        decimal: true,
+        controller: _rateCtrl,
+        current: _rate,
+        onSave: (v) => setState(() => _rate = v),
+      );
+
+  Future<void> _openStepUp() => _openEditor(
+        title: 'Yearly Step-up (%)',
+        hint: 'e.g. 10',
+        decimal: true,
+        controller: _stepCtrl,
+        current: _stepUp,
+        onSave: (v) => setState(() => _stepUp = v),
+      );
 
   Future<void> _openDuration() async {
     _bip();
@@ -300,19 +384,15 @@ class _SipScreenState extends State<SipScreen> {
   Color get _card => _dark ? const Color(0xFF1C1C21) : const Color(0xFFF4F4F6);
   Color get _sheetBg => _dark ? const Color(0xFF1C1C1E) : Colors.white;
   Color get _accent => _dark ? const Color(0xFF5B9DFF) : const Color(0xFF1D4ED8);
-  Color get _keyBg => _dark ? const Color(0xFF333333) : Colors.white;
-  Color get _keyFg => _dark ? Colors.white : Colors.black;
   static const Color _gain = Color(0xFF16A34A);
 
   BorderSide get _cardSide => _dark
       ? BorderSide.none
       : BorderSide(color: Colors.black.withValues(alpha: 0.08));
 
-  ShapeBorder _cardShape({required bool active}) => RoundedRectangleBorder(
+  ShapeBorder _cardShape() => RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(20),
-        side: active
-            ? const BorderSide(color: Color(0xFF1D4ED8), width: 2)
-            : _cardSide,
+        side: _cardSide,
       );
 
   Widget _sheetHandle() {
@@ -351,16 +431,15 @@ class _SipScreenState extends State<SipScreen> {
         ),
       );
 
-  /// Input card with an icon chip, label and value. Tapping selects the
-  /// field for the keypad AND scrolls it into view, so editing always
-  /// works even on short screens.
+  /// Input card with an icon chip, label and value. Tapping opens an
+  /// editor sheet with the normal keyboard and scrolls the card into
+  /// view, so editing always works even on short screens.
   Widget _field({
     required Widget icon,
     required String label,
     required String display,
     required String hint,
-    required bool active,
-    required int index,
+    required VoidCallback onTap,
     required String keyName,
     EdgeInsetsGeometry padding = const EdgeInsets.fromLTRB(16, 0, 16, 12),
   }) {
@@ -369,13 +448,13 @@ class _SipScreenState extends State<SipScreen> {
       child: Builder(
         builder: (ctx) => Material(
           color: _card,
-          shape: _cardShape(active: active),
+          shape: _cardShape(),
           elevation: 0,
           child: InkWell(
-            customBorder: _cardShape(active: active),
+            customBorder: _cardShape(),
             onTap: () {
               _bip();
-              setState(() => _active = index);
+              onTap();
               Scrollable.ensureVisible(
                 ctx,
                 duration: const Duration(milliseconds: 250),
@@ -398,7 +477,7 @@ class _SipScreenState extends State<SipScreen> {
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
-                            color: active ? _accent : _sub,
+                            color: _sub,
                             fontSize: 13,
                             fontWeight: FontWeight.w600,
                           ),
@@ -615,176 +694,6 @@ class _SipScreenState extends State<SipScreen> {
     );
   }
 
-  // ---------- keypad ----------
-  Widget _padKey(String label, double d, VoidCallback onTap,
-      {double fs = 26, Color? fg}) {
-    return Expanded(
-      child: Center(
-        child: SizedBox.square(
-          dimension: d,
-          child: Material(
-            color: _keyBg,
-            shape: const CircleBorder(
-              side: BorderSide.none,
-            ),
-            elevation: 0,
-            child: InkWell(
-              customBorder: const CircleBorder(),
-              onTap: onTap,
-              child: Center(
-                child: Text(
-                  label,
-                  style: TextStyle(
-                    color: fg ?? _keyFg,
-                    fontSize: fs,
-                    fontWeight: FontWeight.w500,
-                    height: 1.0,
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _padDel(double d) {
-    return Expanded(
-      child: Center(
-        child: SizedBox.square(
-          dimension: d,
-          child: Material(
-            color: _keyBg,
-            shape: const CircleBorder(),
-            elevation: 0,
-            child: InkWell(
-              customBorder: const CircleBorder(),
-              onTap: _onDelete,
-              child: Center(
-                child: Icon(
-                  Icons.backspace_outlined,
-                  color: _accent,
-                  size: 28,
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _padEquals(double height) {
-    final shape = RoundedRectangleBorder(
-      borderRadius: BorderRadius.circular(32),
-    );
-    return Expanded(
-      child: SizedBox(
-        height: height,
-        child: Material(
-          color: const Color(0xFF1D4ED8),
-          shape: shape,
-          elevation: 0,
-          child: InkWell(
-            customBorder: shape,
-            onTap: _onEquals,
-            child: const Center(
-              child: Text(
-                '=',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 34,
-                  fontWeight: FontWeight.w500,
-                  height: 1.0,
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _keypad() {
-    const gap = SizedBox(width: 12);
-    const vGap = SizedBox(height: 12);
-    return LayoutBuilder(
-      builder: (ctx, constraints) {
-        // Compact circles (capped at 64) free room so inputs and results
-        // fit together; the tall "=" spans two rows plus the gap.
-        final cell = (constraints.maxWidth - 3 * 12) / 4;
-        final d = cell.clamp(0.0, 64.0).toDouble();
-        return Padding(
-          padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Row(
-                children: [
-                  _padKey('7', d, () => _onKey('7')),
-                  gap,
-                  _padKey('8', d, () => _onKey('8')),
-                  gap,
-                  _padKey('9', d, () => _onKey('9')),
-                  gap,
-                  _padKey('AC', d, () => _onKey('AC'), fs: 20, fg: _accent),
-                ],
-              ),
-              vGap,
-              Row(
-                children: [
-                  _padKey('4', d, () => _onKey('4')),
-                  gap,
-                  _padKey('5', d, () => _onKey('5')),
-                  gap,
-                  _padKey('6', d, () => _onKey('6')),
-                  gap,
-                  _padDel(d),
-                ],
-              ),
-              vGap,
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(
-                    flex: 3,
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Row(
-                          children: [
-                            _padKey('1', d, () => _onKey('1')),
-                            gap,
-                            _padKey('2', d, () => _onKey('2')),
-                            gap,
-                            _padKey('3', d, () => _onKey('3')),
-                          ],
-                        ),
-                        vGap,
-                        Row(
-                          children: [
-                            _padKey('00', d, () => _onKey('00'), fs: 22),
-                            gap,
-                            _padKey('0', d, () => _onKey('0')),
-                            gap,
-                            _padKey('.', d, () => _onKey('.')),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                  gap,
-                  _padEquals(d * 2 + 12),
-                ],
-              ),
-            ],
-          ),
-        );
-      },
-    );
-  }
-
   // ---------- chrome ----------
   Widget _header() {
     return SizedBox(
@@ -851,10 +760,18 @@ class _SipScreenState extends State<SipScreen> {
                   children: [
                     _header(),
                     Expanded(
-                      child: SingleChildScrollView(
-                        controller: _scroll,
-                        child: Column(
-                          children: [
+                      // Centers short content in the viewport; taller
+                      // content scrolls normally instead.
+                      child: LayoutBuilder(
+                        builder: (ctx, viewport) => SingleChildScrollView(
+                          controller: _scroll,
+                          child: ConstrainedBox(
+                            constraints: BoxConstraints(
+                              minHeight: viewport.maxHeight,
+                            ),
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
                             Row(
                               children: [
                                 Expanded(
@@ -863,8 +780,7 @@ class _SipScreenState extends State<SipScreen> {
                                     label: 'SIP Amount',
                                     display: entryInr(_amount),
                                     hint: '₹10,000',
-                                    active: _active == 0,
-                                    index: 0,
+                                    onTap: _openAmount,
                                     keyName: 'sipAmount',
                                     padding: const EdgeInsets.fromLTRB(
                                         16, 0, 6, 12),
@@ -876,8 +792,7 @@ class _SipScreenState extends State<SipScreen> {
                                     label: 'Rate (%)',
                                     display: _rate,
                                     hint: '12',
-                                    active: _active == 1,
-                                    index: 1,
+                                    onTap: _openRate,
                                     keyName: 'sipRate',
                                     padding: const EdgeInsets.fromLTRB(
                                         6, 0, 16, 12),
@@ -890,8 +805,7 @@ class _SipScreenState extends State<SipScreen> {
                               label: 'Yearly Step-up (%) · optional',
                               display: _stepUp,
                               hint: 'Enter step-up',
-                              active: _active == 2,
-                              index: 2,
+                              onTap: _openStepUp,
                               keyName: 'sipStepUp',
                             ),
                             Padding(
@@ -899,10 +813,10 @@ class _SipScreenState extends State<SipScreen> {
                               child: Builder(
                                 builder: (ctx) => Material(
                                   color: _card,
-                                  shape: _cardShape(active: false),
+                                  shape: _cardShape(),
                                   elevation: 0,
                                   child: InkWell(
-                                    customBorder: _cardShape(active: false),
+                                    customBorder: _cardShape(),
                                     onTap: _openDuration,
                                     child: Padding(
                                       padding: const EdgeInsets.symmetric(
@@ -961,7 +875,8 @@ class _SipScreenState extends State<SipScreen> {
                         ),
                       ),
                     ),
-                    _keypad(),
+                  ),
+                ),
                     _homeIndicator(),
                   ],
                 ),

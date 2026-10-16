@@ -29,9 +29,9 @@ void main() {
     expect(displayText(tester), '0');
     expect(historyText(tester), '');
 
-    // Top bar: hamburger and settings, no SPLIT pill.
+    // Top bar: hamburger only, no SPLIT pill.
     expect(find.byIcon(Icons.menu), findsOneWidget);
-    expect(find.byIcon(Icons.settings), findsOneWidget);
+    expect(find.byIcon(Icons.settings), findsNothing);
     expect(find.text('SPLIT'), findsNothing);
 
     // No scientific row, no fake status bar.
@@ -320,26 +320,40 @@ void main() {
     expect(eqColors, contains(const Color(0xFF16A34A)));
   });
 
-  testWidgets('Settings sheet toggles haptic feedback', (tester) async {
+  testWidgets('Top bar keeps only the hamburger', (tester) async {
     await tester.pumpWidget(const CalculatorApp());
 
-    await tester.tap(find.byIcon(Icons.settings));
-    await tester.pumpAndSettle();
+    expect(find.byIcon(Icons.menu), findsOneWidget);
+    expect(find.byIcon(Icons.settings), findsNothing);
+  });
 
-    expect(find.text('Settings'), findsOneWidget);
-    expect(find.text('Haptic feedback'), findsOneWidget);
-    expect(find.byType(Switch).evaluate(), isNotEmpty);
+  testWidgets('Pending operator key highlights until resolved', (
+    tester,
+  ) async {
+    await tester.pumpWidget(const CalculatorApp());
 
-    final before = tester.widget<Switch>(find.byType(Switch)).value;
-    expect(before, isTrue);
-    await tester.tap(find.byType(Switch));
-    await tester.pumpAndSettle();
-    expect(tester.widget<Switch>(find.byType(Switch)).value, isFalse);
+    Future<List<Color?>> opColors(String label) async {
+      return tester
+          .widgetList<Material>(
+            find.ancestor(
+              of: find.text(label).last,
+              matching: find.byType(Material),
+            ),
+          )
+          .map((m) => m.color)
+          .toList();
+    }
 
-    // Dismiss by tapping the barrier outside the sheet.
-    await tester.tapAt(const Offset(8, 8));
-    await tester.pumpAndSettle();
-    expect(find.text('Settings'), findsNothing);
+    await key(tester, '5');
+    await key(tester, '*');
+    // The pending '*' inverts to white; the rest stay blue.
+    expect(await opColors('*'), contains(Colors.white));
+    expect(await opColors('+'), contains(const Color(0xFF1D4ED8)));
+
+    await key(tester, '2');
+    // Resolved: all operators back to blue.
+    expect(await opColors('*'), contains(const Color(0xFF1D4ED8)));
+    expect(await opColors('*'), isNot(contains(Colors.white)));
   });
 
   testWidgets('Hamburger opens the Other Calculator dashboard', (tester) async {
@@ -357,16 +371,15 @@ void main() {
       'Currency',
       'Saving',
       'Age',
-      'BMI',
+      'EMI',
       'Unit',
-      'Date',
       'Discount',
       'Scientific',
     ]) {
       expect(find.text(label), findsOneWidget, reason: label);
     }
     // Every tile renders a Bootstrap SVG icon.
-    expect(find.byType(SvgPicture), findsNWidgets(12));
+    expect(find.byType(SvgPicture), findsNWidgets(11));
 
     // Back arrow returns to the standard pad.
     await tester.tap(find.byIcon(Icons.arrow_back));
@@ -374,18 +387,5 @@ void main() {
     expect(find.byIcon(Icons.menu), findsOneWidget);
   });
 
-  testWidgets('Settings sheet holds clipboard actions and about', (
-    tester,
-  ) async {
-    await tester.pumpWidget(const CalculatorApp());
-
-    await tester.tap(find.byIcon(Icons.settings));
-    await tester.pumpAndSettle();
-
-    expect(find.text('Haptic feedback'), findsOneWidget);
-    expect(find.text('Copy result'), findsOneWidget);
-    expect(find.text('Paste number'), findsOneWidget);
-    expect(find.text('About'), findsOneWidget);
-  });
 
 }

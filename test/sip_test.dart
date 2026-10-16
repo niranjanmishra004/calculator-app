@@ -17,13 +17,8 @@ Future<void> openSip(WidgetTester tester) async {
 String sipKey(WidgetTester tester, String key) =>
     tester.widget<Text>(find.byKey(Key(key))).data!;
 
-Future<void> pad(WidgetTester tester, String label) async {
-  await tester.tap(find.text(label));
-  await tester.pump();
-}
-
 /// Scrolls a field into the visible scrollport and lets motion settle,
-/// otherwise the tap lands on the keypad underneath instead.
+/// otherwise the tap lands on whatever is underneath instead.
 Future<void> seeField(WidgetTester tester, String key) async {
   await tester.scrollUntilVisible(find.byKey(Key(key)), 50);
   await tester.pumpAndSettle();
@@ -39,18 +34,18 @@ Future<void> setPeriod(WidgetTester tester, String chip) async {
   await tester.pumpAndSettle();
 }
 
-/// Types into a field selected by tapping its card.
-Future<void> typeInto(
+/// Edits a field through its editor sheet with the normal keyboard.
+Future<void> sheetType(
   WidgetTester tester,
   String key,
-  List<String> keys,
+  String value,
 ) async {
   await seeField(tester, key);
   await tester.tap(find.byKey(Key(key)));
-  await tester.pump();
-  for (final k in keys) {
-    await pad(tester, k);
-  }
+  await tester.pumpAndSettle();
+  await tester.enterText(find.byType(TextField), value);
+  await tester.tap(find.text('Done'));
+  await tester.pumpAndSettle();
 }
 
 void main() {
@@ -107,7 +102,9 @@ void main() {
     });
   });
 
-  testWidgets('Empty fields show example placeholders', (tester) async {
+  testWidgets('Empty fields show example placeholders, no keypad', (
+    tester,
+  ) async {
     await openSip(tester);
 
     expect(find.text('SIP Amount'), findsOneWidget);
@@ -119,25 +116,21 @@ void main() {
     expect(sipKey(tester, 'sipTotal'), '₹0');
     expect(sipKey(tester, 'sipInvested'), '₹0 · 0%');
     expect(sipKey(tester, 'sipGains'), '₹0 · 0%');
+
+    // The custom keypad is gone: editing happens in editor sheets.
+    expect(find.text('AC'), findsNothing);
+    expect(find.byIcon(Icons.backspace_outlined), findsNothing);
   });
 
-  testWidgets('Keypad types into the active field with live results', (
-    tester,
-  ) async {
+  testWidgets('Editor sheets change values with live results', (tester) async {
     await openSip(tester);
 
-    await pad(tester, '00');
-    expect(sipKey(tester, 'sipAmount'), '₹0');
-    await tester.tap(find.byIcon(Icons.backspace_outlined));
-    await tester.pump();
-    expect(sipKey(tester, 'sipAmount'), '₹10,000');
-
-    // Pick a period, type rate and amount, totals follow live.
     await setPeriod(tester, '10Y');
     expect(sipKey(tester, 'sipPeriod'), '10 Yrs');
-    await typeInto(tester, 'sipRate', ['1', '2']);
+
+    await sheetType(tester, 'sipRate', '12');
     expect(sipKey(tester, 'sipRate'), '12');
-    await typeInto(tester, 'sipAmount', ['5', '0', '0', '0']);
+    await sheetType(tester, 'sipAmount', '5000');
     expect(sipKey(tester, 'sipAmount'), '₹5,000');
     final expected = sipCalc(5000, 12, 120);
     expect(sipKey(tester, 'sipTotal'), inr(expected.total));
@@ -147,8 +140,8 @@ void main() {
     await openSip(tester);
 
     await setPeriod(tester, '10Y');
-    await typeInto(tester, 'sipRate', ['1', '2']);
-    await typeInto(tester, 'sipAmount', ['1', '0', '0', '0', '0']);
+    await sheetType(tester, 'sipRate', '12');
+    await sheetType(tester, 'sipAmount', '10000');
 
     expect(sipKey(tester, 'sipAmount'), '₹10,000');
     expect(sipKey(tester, 'sipTotal'), '₹23,23,391');
@@ -156,13 +149,13 @@ void main() {
     expect(sipKey(tester, 'sipGains'), '₹11,23,391 · 48%');
   });
 
-  testWidgets('Rate field accepts decimals', (tester) async {
+  testWidgets('Rate editor accepts decimals', (tester) async {
     await openSip(tester);
 
     await setPeriod(tester, '10Y');
-    await typeInto(tester, 'sipRate', ['1', '3', '.', '5']);
+    await sheetType(tester, 'sipRate', '13.5');
     expect(sipKey(tester, 'sipRate'), '13.5');
-    await typeInto(tester, 'sipAmount', ['1', '0', '0', '0', '0']);
+    await sheetType(tester, 'sipAmount', '10000');
     final expected = sipCalc(10000, 13.5, 120);
     expect(sipKey(tester, 'sipTotal'), inr(expected.total));
   });
@@ -171,15 +164,30 @@ void main() {
     await openSip(tester);
 
     await setPeriod(tester, '10Y');
-    await typeInto(tester, 'sipRate', ['1', '2']);
-    await typeInto(tester, 'sipAmount', ['1', '0', '0', '0', '0']);
+    await sheetType(tester, 'sipRate', '12');
+    await sheetType(tester, 'sipAmount', '10000');
 
     final before = sipKey(tester, 'sipGains');
-    await typeInto(tester, 'sipStepUp', ['1', '0']);
+    await sheetType(tester, 'sipStepUp', '10');
     expect(sipKey(tester, 'sipStepUp'), '10');
     final expected = sipCalc(10000, 12, 120, 10);
     expect(sipKey(tester, 'sipGains'), startsWith(inr(expected.gains)));
     expect(sipKey(tester, 'sipGains'), isNot(equals(before)));
+  });
+
+  testWidgets('Invalid editor input stays with an error', (tester) async {
+    await openSip(tester);
+
+    await seeField(tester, 'sipAmount');
+    await tester.tap(find.byKey(const Key('sipAmount')));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField), 'abc');
+    await tester.tap(find.text('Done'));
+    await tester.pumpAndSettle();
+
+    // Rejected: the sheet stays open showing the error.
+    expect(find.text('Enter a valid number'), findsOneWidget);
+    expect(find.byType(TextField), findsOneWidget);
   });
 
   testWidgets('Duration sheet quick chip changes the period', (tester) async {
