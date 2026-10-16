@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:myapp/main.dart';
@@ -292,7 +293,7 @@ void main() {
     expect(historyText(tester), '2');
   });
 
-  testWidgets('Operator keys are deep blue', (tester) async {
+  testWidgets('Operator keys are royal blue', (tester) async {
     await tester.pumpWidget(const CalculatorApp());
 
     final colors = tester
@@ -303,7 +304,7 @@ void main() {
           ),
         )
         .map((m) => m.color);
-    expect(colors, contains(const Color(0xFF1E40AF)));
+    expect(colors, contains(const Color(0xFF1D4ED8)));
     // Red C and green = keep their colours.
     final cColors = tester
         .widgetList<Material>(
@@ -341,12 +342,47 @@ void main() {
     expect(find.text('Settings'), findsNothing);
   });
 
-  testWidgets('Menu sheet shows clipboard actions', (tester) async {
+  testWidgets('Hamburger opens the Other Calculator dashboard', (tester) async {
     await tester.pumpWidget(const CalculatorApp());
 
     await tester.tap(find.byIcon(Icons.menu));
     await tester.pumpAndSettle();
 
+    expect(find.text('Other Calculator'), findsOneWidget);
+    for (final label in [
+      'SIP',
+      'Loan',
+      'GST',
+      'Investment',
+      'Currency',
+      'Saving',
+      'Age',
+      'BMI',
+      'Unit',
+      'Date',
+      'Discount',
+      'Scientific',
+    ]) {
+      expect(find.text(label), findsOneWidget, reason: label);
+    }
+    // Every tile renders a Bootstrap SVG icon.
+    expect(find.byType(SvgPicture), findsNWidgets(12));
+
+    // Back arrow returns to the standard pad.
+    await tester.tap(find.byIcon(Icons.arrow_back));
+    await tester.pumpAndSettle();
+    expect(find.byIcon(Icons.menu), findsOneWidget);
+  });
+
+  testWidgets('Settings sheet holds clipboard actions and about', (
+    tester,
+  ) async {
+    await tester.pumpWidget(const CalculatorApp());
+
+    await tester.tap(find.byIcon(Icons.settings));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Haptic feedback'), findsOneWidget);
     expect(find.text('Copy result'), findsOneWidget);
     expect(find.text('Paste number'), findsOneWidget);
     expect(find.text('About'), findsOneWidget);

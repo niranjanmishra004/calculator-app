@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import 'dashboard.dart';
+
 void main() {
   runApp(const CalculatorApp());
 }
@@ -470,20 +472,9 @@ class _CalculatorScreenState extends State<CalculatorScreen> {
   }
 
   void _onClear() {
-    setState(() {
-      if (_error) {
-        _reset();
-        return;
-      }
-      final last = _expr.isEmpty ? null : _expr.last;
-      if (last != null && last.type == _TokType.num && last.text != '0') {
-        // C: drop the number being entered, keep the rest.
-        _expr.last = const _Tok(_TokType.num, '0');
-      } else {
-        // AC: start over.
-        _reset();
-      }
-    });
+    // One tap clears the whole screen: expression, result and error
+    // state are all dropped, so the pad always restarts from 0.
+    setState(_reset);
   }
 
   void _onEquals() {
@@ -564,7 +555,7 @@ class _CalculatorScreenState extends State<CalculatorScreen> {
   Color get _keyFg => _dark ? Colors.white : Colors.black;
   static const Color _clearBgDark = Color(0xFFE5484D);
   static const Color _clearBgLight = Color(0xFFF87171);
-  static const Color _opBg = Color(0xFF1E40AF);
+  static const Color _opBg = Color(0xFF1D4ED8);
   static const Color _opFg = Colors.white;
   static const Color _eqBg = Color(0xFF16A34A);
   static const Color _eqFg = Colors.white;
@@ -731,8 +722,8 @@ class _CalculatorScreenState extends State<CalculatorScreen> {
       child: Row(
         children: [
           IconButton(
-            onPressed: _openMenu,
-            tooltip: 'Menu',
+            onPressed: _openDashboard,
+            tooltip: 'Other calculators',
             splashRadius: 22,
             icon: Icon(Icons.menu, color: _topFg, size: 26),
           ),
@@ -907,6 +898,39 @@ class _CalculatorScreenState extends State<CalculatorScreen> {
                       setSheetState(() {});
                     },
                   ),
+                  ListTile(
+                    leading: Icon(Icons.copy_all, color: _displayFg),
+                    title: Text(
+                      'Copy result',
+                      style: TextStyle(color: _displayFg),
+                    ),
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      _copyResult();
+                    },
+                  ),
+                  ListTile(
+                    leading: Icon(Icons.content_paste, color: _displayFg),
+                    title: Text(
+                      'Paste number',
+                      style: TextStyle(color: _displayFg),
+                    ),
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      _pasteNumber();
+                    },
+                  ),
+                  ListTile(
+                    leading: Icon(Icons.info_outline, color: _displayFg),
+                    title: Text(
+                      'About',
+                      style: TextStyle(color: _displayFg),
+                    ),
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      _showAbout();
+                    },
+                  ),
                   const SizedBox(height: 12),
                 ],
               ),
@@ -917,54 +941,12 @@ class _CalculatorScreenState extends State<CalculatorScreen> {
     );
   }
 
-  void _openMenu() {
-    showModalBottomSheet<void>(
-      context: context,
-      backgroundColor: _sheetBg,
-      shape: _sheetShape,
-      builder: (ctx) {
-        return SafeArea(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const SizedBox(height: 12),
-              _sheetHandle(),
-              _sheetTitle('Menu'),
-              ListTile(
-                leading: Icon(Icons.copy_all, color: _displayFg),
-                title: Text(
-                  'Copy result',
-                  style: TextStyle(color: _displayFg),
-                ),
-                onTap: () {
-                  Navigator.pop(ctx);
-                  _copyResult();
-                },
-              ),
-              ListTile(
-                leading: Icon(Icons.content_paste, color: _displayFg),
-                title: Text(
-                  'Paste number',
-                  style: TextStyle(color: _displayFg),
-                ),
-                onTap: () {
-                  Navigator.pop(ctx);
-                  _pasteNumber();
-                },
-              ),
-              ListTile(
-                leading: Icon(Icons.info_outline, color: _displayFg),
-                title: Text('About', style: TextStyle(color: _displayFg)),
-                onTap: () {
-                  Navigator.pop(ctx);
-                  _showAbout();
-                },
-              ),
-              const SizedBox(height: 12),
-            ],
-          ),
-        );
-      },
+  void _openDashboard() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => DashboardScreen(dark: _dark, haptics: _haptics),
+      ),
     );
   }
 
@@ -1001,7 +983,7 @@ class _CalculatorScreenState extends State<CalculatorScreen> {
         backgroundColor: _sheetBg,
         title: Text('Calculator', style: TextStyle(color: _displayFg)),
         content: Text(
-          'A calculator with parentheses, live results and keyboard input.',
+          'A calculator with parentheses, a scientific mode, live results and keyboard input.',
           style: TextStyle(color: _displayFg.withValues(alpha: 0.8)),
         ),
         actions: [
